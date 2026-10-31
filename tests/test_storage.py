@@ -274,6 +274,26 @@ class ActivityStoreTest(unittest.TestCase):
             ],
         )
 
+    def test_detected_suspend_gap_is_recorded_as_app_off(self) -> None:
+        clock = MutableClock(100.0)
+        store = ActivityStore(self.database_path, clock)
+        store.switch_state(SITTING)
+        store.heartbeat(110.0)
+
+        store.record_inactive_gap(200.0)
+        self.assertEqual(store.current_state, SITTING)
+        store.stop(220.0)
+        store.close()
+
+        self.assertEqual(
+            self._read_intervals(),
+            [
+                (SITTING, 100.0, 110.0),
+                (APP_OFF, 110.0, 200.0),
+                (SITTING, 200.0, 220.0),
+            ],
+        )
+
     def test_crash_recovery_keeps_heartbeat_after_clock_rollback(self) -> None:
         clock = MutableClock(100.0)
         store = ActivityStore(self.database_path, clock)

@@ -246,6 +246,42 @@ class ActivityStore:
         with self._connection:
             self._set_last_seen(timestamp)
 
+    def record_inactive_gap(self, resumed_at: float) -> None:
+        """Split an active interval around a detected process or VM pause."""
+        if self._current_id is None or self._current_state is None:
+            return
+        last_seen = self._get_last_seen()
+        gap_start = (
+            self._current_started_at
+            if last_seen is None
+            else max(self._current_started_at or last_seen, last_seen)
+        )
+        resumed_at = max(resumed_at, gap_start)
+        if resumed_at <= gap_start:
+            return
+
+        state = self._current_state
+        with self._connection:
+            self._connection.execute(
+                "UPDATE intervals SET ended_at = ? WHERE id = ?",
+                (gap_start, self._current_id),
+            )
+            self._connection.execute(
+                """
+                INSERT INTO intervals (state, started_at, ended_at)
+                VALUES (?, ?, ?)
+                """,
+                (APP_OFF, gap_start, resumed_at),
+            )
+            cursor = self._connection.execute(
+                "INSERT INTO intervals (state, started_at) VALUES (?, ?)",
+                (state, resumed_at),
+            )
+            new_interval_id = int(cursor.lastrowid)
+            self._set_last_seen(resumed_at)
+        self._current_id = new_interval_id
+        self._current_started_at = resumed_at
+
     def stop(self, at: Optional[float] = None) -> None:
         """Close the active interval before a normal application exit."""
         if self._current_id is None:

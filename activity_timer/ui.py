@@ -43,6 +43,7 @@ TAB_KEY_CODE = 9
 DRINK_KEY_CODE = ord("5")
 ENTER_KEY_CODES = frozenset((10, 13, curses.KEY_ENTER))
 ESCAPE_KEY_CODE = 27
+SUSPEND_GAP_THRESHOLD_SECONDS = 5.0
 
 WEEKDAY_LABELS = (
     "Понедельник",
@@ -289,6 +290,17 @@ def key_code(key: object) -> Optional[int]:
     if isinstance(key, str) and len(key) == 1:
         return ord(key)
     return None
+
+
+def suspend_gap_detected(
+    wall_elapsed: float,
+    monotonic_elapsed: float,
+) -> bool:
+    """Detect a long event-loop pause or a forward wall-clock jump."""
+    return (
+        monotonic_elapsed >= SUSPEND_GAP_THRESHOLD_SECONDS
+        or wall_elapsed - monotonic_elapsed >= SUSPEND_GAP_THRESHOLD_SECONDS
+    )
 
 
 def progress_bar(value: float, total: float, width: int) -> str:
@@ -866,12 +878,24 @@ def run_interface(window: curses.window, store: ActivityStore) -> None:
 
     show_statistics = False
     statistics_offset = 0
-    last_heartbeat = 0.0
+    previous_wall_time = time.time()
+    previous_monotonic_time = time.monotonic()
+    last_heartbeat_monotonic = previous_monotonic_time
     while True:
         now = time.time()
-        if now - last_heartbeat >= 1.0:
+        monotonic_now = time.monotonic()
+        if suspend_gap_detected(
+            now - previous_wall_time,
+            monotonic_now - previous_monotonic_time,
+        ):
+            store.record_inactive_gap(now)
+            last_heartbeat_monotonic = monotonic_now
+        previous_wall_time = now
+        previous_monotonic_time = monotonic_now
+
+        if monotonic_now - last_heartbeat_monotonic >= 1.0:
             store.heartbeat(now)
-            last_heartbeat = now
+            last_heartbeat_monotonic = monotonic_now
 
         if show_statistics:
             _draw_statistics(window, store, now, statistics_offset)

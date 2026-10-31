@@ -36,10 +36,17 @@ from activity_timer.ui import (
     percentage,
     progress_bar,
     statistics_summary_line,
+    suspend_gap_detected,
 )
 
 
 class ActivityCarouselTest(unittest.TestCase):
+    def test_suspend_detection_handles_both_vm_clock_behaviors(self) -> None:
+        self.assertFalse(suspend_gap_detected(0.25, 0.25))
+        self.assertTrue(suspend_gap_detected(3600.0, 0.25))
+        self.assertTrue(suspend_gap_detected(3600.0, 3600.0))
+        self.assertFalse(suspend_gap_detected(-3600.0, 0.25))
+
     def test_optional_terminal_capabilities_have_safe_fallbacks(self) -> None:
         window = MagicMock()
         with patch("activity_timer.ui.curses.curs_set", side_effect=curses.error):
